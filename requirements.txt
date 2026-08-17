@@ -5,4 +5,5 @@ pandas==2.2.0
 torch==2.2.0
 transformers==4.37.2
 tqdm==4.66.1
-wandb==0.16.2
+wandb==0.26.1
+tiktoken==0.13.0

@@ -13,8 +13,8 @@ import wandb
 
 
 # wandb logging
-wandb_log = False # disabled by default
-wandb_project = 'owt'
+wandb_log = True # disabled by default
+wandb_project = 'fmt-llm'
 wandb_run_name = 'gpt2' # 'run' + str(time.time())
 
 torch_seed_default = 1337
@@ -34,7 +34,7 @@ if init_from == 'resume':
     wandb_run_id = None #Wandb expect run id from config when resume else fail
 
 # data
-dataset = 'openwebtext'
+dataset = 'babylm_full_bpe_8k' # 'openwebtext' does not exist in data?
 gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
 batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
@@ -59,7 +59,7 @@ wm_decay_echoic_memory = 1 #Echoic memory for the decay matrix, first n values w
 
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
-max_iters = 600000 # total number of training iterations
+max_iters = 600000 # total number of training iterations 
 #Alternatively, use epochs if dataset type is 'full'
 epochs = 10
 
@@ -89,8 +89,17 @@ compile = True # use PyTorch 2.0 to compile the model to be faster
 
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
-exec(open('configurator.py').read()) # overrides from command line or config file
+#exec(open('configurator.py').read()) # overrides from command line or config file
+import sys
+
+for arg in sys.argv[1:]:
+    if arg.startswith("config="):
+        config_file = arg.split("=", 1)[1]
+        print(f"Overriding config with {config_file}")
+        exec(open(config_file).read(), globals())
+
 config = {k: globals()[k] for k in config_keys} # will be useful for logging
+print(config)
 # -----------------------------------------------------------------------------
 
 # various inits, derived attributes, I/O setup
