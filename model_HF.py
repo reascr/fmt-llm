@@ -52,7 +52,7 @@ class CausalSelfAttention(nn.Module):
         self.wm_decay_rate = config.wm_decay_rate
         self.wm_decay_type = config.wm_decay_type
         self.wm_decay_echoic_memory = config.wm_decay_echoic_memory
-        self.wm_setting_type = config.wm_setting_type
+        #self.wm_setting_type = config.wm_setting_type # COMMENT OUT AGAIN
         
         self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         if self.wm_mask:

@@ -32,7 +32,12 @@ else:
 lay_x_head = f'{n_layer}x{n_head}'
 torch_seed_default = 42
 
-unique_id = os.environ.get("SLURM_JOB_ID", str(int(time.time()))) #Using SLURM_JOB_ID as unique id else use time
+# unique_id = os.environ.get("SLURM_JOB_ID", str(int(time.time()))) #Using SLURM_JOB_ID as unique id else use time
+# MPI cluster do not use SLURM but SGE
+unique_id = os.environ.get(
+    "JOB_ID",
+    os.environ.get("SLURM_JOB_ID", str(int(time.time())))
+)
 
 out_dir = f'output/out-{dataset}-{lay_x_head}-{mask_part}-{unique_id}'
 wandb_run_name = f'{dataset}_{lay_x_head}_{mask_part}_gpt2_{sysname}_run_{unique_id}'

@@ -10,6 +10,7 @@ from torch.distributed import init_process_group, destroy_process_group
 from model import GPTConfig, GPT 
 from utils.sampler import sample_from_model
 import wandb
+import sys 
 
 
 # wandb logging
@@ -56,6 +57,11 @@ wm_decay_rate = 2 # how fast to decay the mask
 wm_decay_type = "power_law" # Type of decay to apply to the matrix #linear, exponential, inverse_sigmoid, custom_logistic
 wm_decay_echoic_memory = 1 #Echoic memory for the decay matrix, first n values where "effect of decay" is not applied, where memory is supposedly perfect
 
+# developmental fleeting memory
+wm_developmental = False
+wm_decay_rate_initial = 6.0
+wm_decay_rate_adult = 1.0
+wm_decay_development_rate = 0.9999
 
 # adamw optimizer
 learning_rate = 6e-4 # max learning rate
@@ -90,7 +96,6 @@ compile = True # use PyTorch 2.0 to compile the model to be faster
 # -----------------------------------------------------------------------------
 config_keys = [k for k,v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 #exec(open('configurator.py').read()) # overrides from command line or config file
-import sys
 
 for arg in sys.argv[1:]:
     if arg.startswith("config="):
@@ -183,7 +188,11 @@ if ffw_dim is None:
 model_args = dict(n_layer=n_layer, n_head=n_head, n_embd=n_embd, block_size=block_size,
                   bias=bias, vocab_size=None, dropout=dropout, head_size_qkv=head_size_qkv, ffw_dim=ffw_dim,
                   wm_mask=wm_mask, wm_decay_rate=wm_decay_rate, wm_decay_type=wm_decay_type,
-                  wm_decay_length=wm_decay_length, wm_decay_echoic_memory=wm_decay_echoic_memory) # start with model_args from command line
+                  wm_decay_length=wm_decay_length, wm_decay_echoic_memory=wm_decay_echoic_memory,
+                  wm_developmental=wm_developmental,
+                wm_decay_rate_initial=wm_decay_rate_initial,
+                wm_decay_rate_adult=wm_decay_rate_adult,
+                wm_decay_development_rate=wm_decay_development_rate) # start with model_args from command line
 
 if init_from == 'scratch':
     # init a new model from scratch
@@ -224,11 +233,19 @@ if block_size < model.config.block_size:
 model.to(device)
 
 if wm_mask:
-    #To log the decay curve to wandb
-    log_decay_vals = model.transformer.h[0].attn.get_decay_weight_matrix(block_size, wm_decay_length,
-                                                                     decay_factor=wm_decay_rate,
-                                                                     decay_type=wm_decay_type,
-                                                                     decay_echoic_memory=wm_decay_echoic_memory)
+    if wm_developmental:
+        log_decay_rate = model.transformer.h[0].attn.get_developmental_decay_rate(iter_num)
+    else:
+        log_decay_rate = wm_decay_rate
+
+    log_decay_vals = model.transformer.h[0].attn.get_decay_weight_matrix(
+        block_size,
+        wm_decay_length,
+        decay_factor=log_decay_rate,
+        decay_type=wm_decay_type,
+        decay_echoic_memory=wm_decay_echoic_memory
+    )
+
     log_decay_vals = log_decay_vals[-1].flip([0]).tolist()
 
 # initialize a GradScaler. If enabled=False scaler is a no-op
@@ -261,7 +278,7 @@ def estimate_loss():
         for k in range(eval_iters):
             X, Y = get_batch(split)
             with ctx:
-                logits, loss = model(X, Y)
+                logits, loss = model(X, Y, training_step=iter_num)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
@@ -297,7 +314,7 @@ if wandb_log and master_process:
                     "decay_curve": wandb.plot.line(
                         wandb.Table(data=[[x,y] for x,y in zip(x, log_decay_vals)], columns=["index", "decay_value"]),
                         "index", "decay_value",
-                        title=f"Decay Curve for {wm_decay_type} decay with rate {wm_decay_rate} and echoic memory {wm_decay_echoic_memory}"
+                        title=f"Decay Curve for {wm_decay_type} decay with rate {log_decay_rate:.4f} and echoic memory {wm_decay_echoic_memory}"
                     )
                 }, commit=False
             )
@@ -354,6 +371,19 @@ while True:
     if iter_num == 0 and eval_only:
         break
 
+    if wm_developmental and iter_num % log_interval == 0:
+        current_decay_rate = (
+            wm_decay_rate_adult
+            + (wm_decay_rate_initial - wm_decay_rate_adult)
+            * (wm_decay_development_rate ** iter_num)
+        )
+
+        if wandb_log and master_process:
+            wandb.log({
+                "development/decay_rate": current_decay_rate,
+                "iter": iter_num,
+            })
+
     # forward backward update, with optional gradient accumulation to simulate larger batch size
     # and using the GradScaler if data type is float16
     for micro_step in range(gradient_accumulation_steps):
@@ -364,7 +394,7 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            logits, loss = model(X, Y)
+            logits, loss = model(X, Y, training_step=iter_num)
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
 
         X, Y = get_batch('train')

@@ -42,10 +42,16 @@ class CausalSelfAttention(nn.Module):
         self.wm_decay_rate = config.wm_decay_rate
         self.wm_decay_type = config.wm_decay_type
         self.wm_decay_echoic_memory = config.wm_decay_echoic_memory
-        self.wm_setting_type = config.wm_setting_type
+        #self.wm_setting_type = config.wm_setting_type
+
+        # needed for developmental fleeting memory
+        self.wm_developmental = config.wm_developmental
+        self.wm_decay_rate_initial = config.wm_decay_rate_initial
+        self.wm_decay_rate_adult = config.wm_decay_rate_adult
+        self.wm_decay_development_rate = config.wm_decay_development_rate
         
         # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
-        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention')
+        self.flash = hasattr(torch.nn.functional, 'scaled_dot_product_attention') 
         if self.wm_mask:
             print("Setting flash to False because wm_mask is enabled")
             self.flash = False 
@@ -83,8 +89,17 @@ class CausalSelfAttention(nn.Module):
         lower_triangle = lower_triangle.float()
 
         return lower_triangle
+    
+    # calculate the developmental decay at every step (might change that later)
+    def get_developmental_decay_rate(self, step):
+        return (
+            self.wm_decay_rate_adult
+            + (self.wm_decay_rate_initial - self.wm_decay_rate_adult)
+            * (self.wm_decay_development_rate ** step)
+        )
 
-    def forward(self, x):
+
+    def forward(self, x, training_step=None):
         # batch size, sequence length, embedding dimensionality (n_embd)
         # B is batch size, T is sequence length, C is embedding dimensionality
         B, T, C = x.size()
@@ -111,9 +126,21 @@ class CausalSelfAttention(nn.Module):
             att = self.attn_dropout(att)
 
             if self.wm_mask:
-                wm_mask = self.get_decay_weight_matrix(T, self.wm_decay_length, decay_factor=self.wm_decay_rate, decay_type=self.wm_decay_type,
-                                                        decay_echoic_memory=self.wm_decay_echoic_memory).to(x.device)
-                assert att.shape[-2:]==wm_mask.shape[-2:]
+                if self.wm_developmental:
+                    assert training_step is not None
+                    current_decay_rate = self.get_developmental_decay_rate(training_step) # might print and see how it is decreasing as a plot?
+                else:
+                    current_decay_rate = self.wm_decay_rate
+
+                wm_mask = self.get_decay_weight_matrix(
+                    T,
+                    self.wm_decay_length,
+                    decay_factor=current_decay_rate,
+                    decay_type=self.wm_decay_type,
+                    decay_echoic_memory=self.wm_decay_echoic_memory
+                ).to(x.device)
+
+                assert att.shape[-2:] == wm_mask.shape[-2:]
 
                 att = att * wm_mask
 
@@ -149,8 +176,8 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x):
-        x = x + self.attn(self.ln_1(x))
+    def forward(self, x, training_step=None):
+        x = x + self.attn(self.ln_1(x), training_step=training_step)
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -173,6 +200,11 @@ class GPTConfig:
     wm_decay_type: str = "power_law"
     wm_decay_echoic_memory: int = 1
 
+      # needed for developmental fleeting memory    
+    wm_developmental: bool = False
+    wm_decay_rate_initial: float = 6.0
+    wm_decay_rate_adult: float = 1.0
+    wm_decay_development_rate: float = 0.9999
 
 class GPT(nn.Module):
 
@@ -225,7 +257,7 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None, hidden_states=False):
+    def forward(self, idx, targets=None, hidden_states=False, training_step=None):
 
         device = idx.device
         b, t = idx.size()
@@ -239,7 +271,7 @@ class GPT(nn.Module):
         x = self.transformer.drop(tok_emb + pos_emb)
         hidden_states_list = [x] if hidden_states else None
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, training_step=training_step)
             if hidden_states:
                 hidden_states_list.append(x)
 
@@ -311,20 +343,20 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, do_sample=True):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, do_sample=True, training_step=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
         Most likely you'll want to make sure to be in model.eval() mode of operation for this.
         """
 
-        #Enable better batch decoding but until then loop through each sequenc
+        #Enable better batch decoding but until then loop through each sequence
 
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond)
+            logits, _ = self(idx_cond, training_step=training_step)
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options

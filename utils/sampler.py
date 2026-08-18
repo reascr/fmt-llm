@@ -83,7 +83,13 @@ def sample_from_model(model, data_dir, out_dir,
         with torch.no_grad():
             with ctx:
                 for k in range(num_samples):
-                    y = model.generate(x, max_new_tokens, temperature=temperature, top_k=top_k)
+                    y = model.generate(
+                        x,
+                        max_new_tokens,
+                        temperature=temperature,
+                        top_k=top_k,
+                        training_step=iter_num
+                    )
 
                     write_list.append(decode(y[0].tolist()))
         with open(write_path, 'w') as f:
