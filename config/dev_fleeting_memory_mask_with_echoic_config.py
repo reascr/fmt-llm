@@ -71,4 +71,4 @@ min_lr = 5e-5 # learning_rate / 10 usually
 
 warmup_iters = 100 
 weight_decay = 1e-1
-compile = False # Delete later
+compile = True

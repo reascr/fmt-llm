@@ -61,6 +61,7 @@ class CausalSelfAttention(nn.Module):
             self.register_buffer("bias", torch.tril(torch.ones(config.block_size, config.block_size))
                                         .view(1, 1, config.block_size, config.block_size))
 
+    # dev fm changes: original power law calculation stays, the only difference is how the decay_factor is supplied                                   
     def get_decay_weight_matrix(self, n, decay_length, decay_factor=None, decay_type=None, decay_echoic_memory=1):
 
         """
@@ -76,6 +77,8 @@ class CausalSelfAttention(nn.Module):
         if decay_type == "power_law":
             decay_length = decay_length - decay_echoic_memory + 1
             nums = torch.linspace(0, 1, decay_length)
+            if torch.is_tensor(decay_factor): # REMOVE: for compile=TRUE
+                nums = nums.to(decay_factor.device)
             decay_values = 1 - torch.pow(nums, 1 / (np.e * decay_factor))
             decay_values = torch.cat((torch.ones(decay_echoic_memory - 1), decay_values))
             decay_length = decay_length + decay_echoic_memory - 1
@@ -90,16 +93,17 @@ class CausalSelfAttention(nn.Module):
 
         return lower_triangle
     
-    # calculate the developmental decay at every step (might change that later)
+    '''# calculate the developmental decay at every step (might change that later)
     def get_developmental_decay_rate(self, step):
         return (
             self.wm_decay_rate_adult
             + (self.wm_decay_rate_initial - self.wm_decay_rate_adult)
             * (self.wm_decay_development_rate ** step)
-        )
+        )''' # do not calculate inside attention
 
-
-    def forward(self, x, training_step=None):
+    # dev fm changes: we need to provide the training step since we need it for the calculation of the decay rate
+    # def forward(self, x, training_step=None):
+    def forward(self, x, current_decay_rate=None):
         # batch size, sequence length, embedding dimensionality (n_embd)
         # B is batch size, T is sequence length, C is embedding dimensionality
         B, T, C = x.size()
@@ -125,11 +129,14 @@ class CausalSelfAttention(nn.Module):
             att = F.softmax(att, dim=-1)
             att = self.attn_dropout(att)
 
-            if self.wm_mask:
+            '''if self.wm_mask:
                 if self.wm_developmental:
                     assert training_step is not None
-                    current_decay_rate = self.get_developmental_decay_rate(training_step) # might print and see how it is decreasing as a plot?
+                    current_decay_rate = self.get_developmental_decay_rate(training_step)
                 else:
+                    current_decay_rate = self.wm_decay_rate'''
+            if self.wm_mask:
+                if current_decay_rate is None:
                     current_decay_rate = self.wm_decay_rate
 
                 wm_mask = self.get_decay_weight_matrix(
@@ -176,8 +183,16 @@ class Block(nn.Module):
         self.ln_2 = LayerNorm(config.n_embd, bias=config.bias)
         self.mlp = MLP(config)
 
-    def forward(self, x, training_step=None):
+    '''def forward(self, x, training_step=None): # dev fm changes: provide training step information 
         x = x + self.attn(self.ln_1(x), training_step=training_step)
+        x = x + self.mlp(self.ln_2(x))
+        return x'''
+
+    def forward(self, x, current_decay_rate=None):
+        x = x + self.attn(
+            self.ln_1(x),
+            current_decay_rate=current_decay_rate
+        )
         x = x + self.mlp(self.ln_2(x))
         return x
 
@@ -257,7 +272,8 @@ class GPT(nn.Module):
         elif isinstance(module, nn.Embedding):
             torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
-    def forward(self, idx, targets=None, hidden_states=False, training_step=None):
+    # def forward(self, idx, targets=None, hidden_states=False, training_step=None):
+    def forward(self, idx, targets=None, hidden_states=False, current_decay_rate=None):
 
         device = idx.device
         b, t = idx.size()
@@ -271,7 +287,8 @@ class GPT(nn.Module):
         x = self.transformer.drop(tok_emb + pos_emb)
         hidden_states_list = [x] if hidden_states else None
         for block in self.transformer.h:
-            x = block(x, training_step=training_step)
+            # x = block(x, training_step=training_step)
+            x = block(x,current_decay_rate=current_decay_rate)
             if hidden_states:
                 hidden_states_list.append(x)
 
@@ -343,7 +360,7 @@ class GPT(nn.Module):
         return mfu
 
     @torch.no_grad()
-    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, do_sample=True, training_step=None):
+    def generate(self, idx, max_new_tokens, temperature=1.0, top_k=None, do_sample=True, current_decay_rate=None):
         """
         Take a conditioning sequence of indices idx (LongTensor of shape (b,t)) and complete
         the sequence max_new_tokens times, feeding the predictions back into the model each time.
@@ -356,7 +373,7 @@ class GPT(nn.Module):
             # if the sequence context is growing too long we must crop it at block_size
             idx_cond = idx if idx.size(1) <= self.config.block_size else idx[:, -self.config.block_size:]
             # forward the model to get the logits for the index in the sequence
-            logits, _ = self(idx_cond, training_step=training_step)
+            logits, _ = self(idx_cond, current_decay_rate=current_decay_rate)
             # pluck the logits at the final step and scale by desired temperature
             logits = logits[:, -1, :] / temperature
             # optionally crop the logits to only the top k options

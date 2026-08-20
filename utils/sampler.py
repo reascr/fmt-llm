@@ -33,6 +33,21 @@ def sample_from_model(model, data_dir, out_dir,
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
     model.eval()
 
+    # developmental model 
+    if getattr(model.config, "wm_developmental", False):
+        current_decay_rate_value = (
+            model.config.wm_decay_rate_adult
+            + (model.config.wm_decay_rate_initial - model.config.wm_decay_rate_adult)
+            * (model.config.wm_decay_development_rate ** iter_num)
+            )
+    else:
+        current_decay_rate_value = model.config.wm_decay_rate
+
+    current_decay_rate = torch.tensor(
+        current_decay_rate_value,
+        dtype=torch.float32
+    )
+
     # look for the meta pickle in case it is available in the dataset folder
     meta_path = os.path.join(data_dir, 'meta.pkl')
     load_meta = os.path.exists(meta_path)
@@ -88,7 +103,7 @@ def sample_from_model(model, data_dir, out_dir,
                         max_new_tokens,
                         temperature=temperature,
                         top_k=top_k,
-                        training_step=iter_num
+                        current_decay_rate=current_decay_rate
                     )
 
                     write_list.append(decode(y[0].tolist()))

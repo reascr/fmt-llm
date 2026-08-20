@@ -157,7 +157,12 @@ def get_batch(split):
         x, y = x.to(device), y.to(device)
     return x, y
 
-
+def get_developmental_decay_rate(step):
+    return (
+        wm_decay_rate_adult
+        + (wm_decay_rate_initial - wm_decay_rate_adult)
+        * (wm_decay_development_rate ** step)
+    )
 
 # init these up here, can override if init_from='resume' (i.e. from a checkpoint)
 iter_num = 0
@@ -234,7 +239,8 @@ model.to(device)
 
 if wm_mask:
     if wm_developmental:
-        log_decay_rate = model.transformer.h[0].attn.get_developmental_decay_rate(iter_num)
+        # log_decay_rate = model.transformer.h[0].attn.get_developmental_decay_rate(iter_num)
+        log_decay_rate = get_developmental_decay_rate(iter_num)
     else:
         log_decay_rate = wm_decay_rate
 
@@ -278,11 +284,27 @@ def estimate_loss():
         for k in range(eval_iters):
             X, Y = get_batch(split)
             with ctx:
-                logits, loss = model(X, Y, training_step=iter_num)
+                #logits, loss = model(X, Y, training_step=iter_num)
+                if wm_developmental:
+                    current_decay_rate_value = get_developmental_decay_rate(iter_num)
+                else:
+                    current_decay_rate_value = wm_decay_rate
+
+                current_decay_rate = torch.tensor(
+                    current_decay_rate_value,
+                    dtype=torch.float32
+                )
+
+                logits, loss = model(
+                    X,
+                    Y,
+                    current_decay_rate=current_decay_rate
+                )
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
     return out
+
 
 # learning rate decay scheduler (cosine with warmup)
 def get_lr(it):
@@ -371,7 +393,7 @@ while True:
     if iter_num == 0 and eval_only:
         break
 
-    if wm_developmental and iter_num % log_interval == 0:
+    '''if wm_developmental and iter_num % log_interval == 0:
         current_decay_rate = (
             wm_decay_rate_adult
             + (wm_decay_rate_initial - wm_decay_rate_adult)
@@ -381,6 +403,29 @@ while True:
         if wandb_log and master_process:
             wandb.log({
                 "development/decay_rate": current_decay_rate,
+                "iter": iter_num,
+            })
+
+    if wm_developmental:
+        current_decay_rate = get_developmental_decay_rate(iter_num)
+    else:
+        current_decay_rate = wm_decay_rate'''
+        
+    if wm_developmental:
+        current_decay_rate_value = get_developmental_decay_rate(iter_num)
+    else:
+        current_decay_rate_value = wm_decay_rate
+    
+    current_decay_rate = torch.tensor(
+        current_decay_rate_value,
+        # device=device,
+        dtype=torch.float32
+    )
+
+    if wm_developmental and iter_num % log_interval == 0:
+        if wandb_log and master_process:
+            wandb.log({
+                "development/decay_rate": current_decay_rate_value,
                 "iter": iter_num,
             })
 
@@ -394,7 +439,12 @@ while True:
             # looking at the source of that context manager, it just toggles this variable
             model.require_backward_grad_sync = (micro_step == gradient_accumulation_steps - 1)
         with ctx:
-            logits, loss = model(X, Y, training_step=iter_num)
+            # logits, loss = model(X, Y, training_step=iter_num)
+            logits, loss = model(
+                X,
+                Y,
+                current_decay_rate=current_decay_rate
+            )
             loss = loss / gradient_accumulation_steps # scale the loss to account for gradient accumulation
 
         X, Y = get_batch('train')
