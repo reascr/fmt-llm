@@ -18,7 +18,7 @@ wandb_log = True # disabled by default
 wandb_project = 'fmt-llm'
 wandb_run_name = 'gpt2' # 'run' + str(time.time())
 
-torch_seed_default = 1337
+torch_seed_default = 1337 #  add: 42, 123, 456, 789 and add that in the name as well 
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -370,16 +370,30 @@ while True:
 
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
-            if iter_num > 0:
-                checkpoint = {
-                    'model': raw_model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'model_args': model_args,
-                    'iter_num': iter_num,
-                    'best_val_loss': best_val_loss,
-                    'config': config,
+
+            # if iter_num > 0: # we want to save a checkpoint for 
+
+            checkpoint = {
+                'model': raw_model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'model_args': model_args,
+                'iter_num': iter_num,
+                'best_val_loss': best_val_loss,
+                'config': config,
                 }
-                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+
+                # Latest checkpoint (overwritten throughout training)
+            torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+
+                # Save permanent intermediate checkpoints every 5,000 steps
+                # and preserve the final model checkpoint.
+            if iter_num % 5000 == 0 or iter_num == max_iters:
+                checkpoint_path = os.path.join(
+                        out_dir,
+                        f'ckpt_{iter_num}.pt'
+                    )
+            torch.save(checkpoint, checkpoint_path)
+            print(f"Saved intermediate checkpoint to {checkpoint_path}")
 
         #Consider running a sampler here maybe?
         if save_sample_to_file:
