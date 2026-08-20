@@ -77,8 +77,8 @@ class CausalSelfAttention(nn.Module):
         if decay_type == "power_law":
             decay_length = decay_length - decay_echoic_memory + 1
             nums = torch.linspace(0, 1, decay_length)
-            if torch.is_tensor(decay_factor): # REMOVE: for compile=TRUE
-                nums = nums.to(decay_factor.device)
+            #if torch.is_tensor(decay_factor): # REMOVE: for compile=TRUE
+            #    nums = nums.to(decay_factor.device)
             decay_values = 1 - torch.pow(nums, 1 / (np.e * decay_factor))
             decay_values = torch.cat((torch.ones(decay_echoic_memory - 1), decay_values))
             decay_length = decay_length + decay_echoic_memory - 1

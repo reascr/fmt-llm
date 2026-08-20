@@ -34,8 +34,8 @@ torch_seed_default = 42
 
 unique_id = os.environ.get("SLURM_JOB_ID", str(int(time.time()))) #Using SLURM_JOB_ID as unique id else use time
 
-out_dir = f'output/out-{dataset}-{lay_x_head}-{mask_part}-{unique_id}'
-wandb_run_name = f'{dataset}_{lay_x_head}_{mask_part}_gpt2_{sysname}_run_{unique_id}'
+out_dir = f'output/out-{dataset}-{lay_x_head}-{mask_part}-seed{torch_seed_default}-{unique_id}'
+wandb_run_name = f'{dataset}_{lay_x_head}_{mask_part}_seed{torch_seed_default}_gpt2_{sysname}_run_{unique_id}'
 
 
 
