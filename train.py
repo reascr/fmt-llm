@@ -328,6 +328,13 @@ if wandb_log and master_process:
     else:
         wandb.init(project=wandb_project, name=wandb_run_name, config=config)
 
+        # Use actual training iteration as x-axis
+        wandb.define_metric("iter")
+        wandb.define_metric("train/loss", step_metric="iter")
+        wandb.define_metric("val/loss", step_metric="iter")
+        wandb.define_metric("lr", step_metric="iter")
+        wandb.define_metric("mfu", step_metric="iter")
+
         #logging the decay curve if it exists once
         if wm_mask:
             x = list(range(len(log_decay_vals)))
@@ -406,24 +413,6 @@ while True:
 
     if iter_num == 0 and eval_only:
         break
-
-    '''if wm_developmental and iter_num % log_interval == 0:
-        current_decay_rate = (
-            wm_decay_rate_adult
-            + (wm_decay_rate_initial - wm_decay_rate_adult)
-            * (wm_decay_development_rate ** iter_num)
-        )
-
-        if wandb_log and master_process:
-            wandb.log({
-                "development/decay_rate": current_decay_rate,
-                "iter": iter_num,
-            })
-
-    if wm_developmental:
-        current_decay_rate = get_developmental_decay_rate(iter_num)
-    else:
-        current_decay_rate = wm_decay_rate'''
         
     if wm_developmental:
         current_decay_rate_value = get_developmental_decay_rate(iter_num)
