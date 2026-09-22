@@ -139,10 +139,12 @@ class CausalSelfAttention(nn.Module):
                 if current_decay_rate is None:
                     current_decay_rate = self.wm_decay_rate
 
+                decay_val = current_decay_rate.item() if torch.is_tensor(current_decay_rate) else current_decay_rate
+
                 wm_mask = self.get_decay_weight_matrix(
                     T,
                     self.wm_decay_length,
-                    decay_factor=current_decay_rate,
+                    decay_factor=decay_val,
                     decay_type=self.wm_decay_type,
                     decay_echoic_memory=self.wm_decay_echoic_memory
                 ).to(x.device)

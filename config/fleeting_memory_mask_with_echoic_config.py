@@ -4,7 +4,7 @@ import os
 
 
 # wandb logging
-dataset = 'babylm_full_bpe_8k'
+dataset = 'babylm_100M_full_bpe_8k'
 wandb_log = True 
 wandb_project = 'project_name'
 sysname = "local" if "pop-os" in platform.node() else "server"
@@ -30,7 +30,7 @@ else:
     mask_part = "nomask"
 
 lay_x_head = f'{n_layer}x{n_head}'
-torch_seed_default = 42
+torch_seed_default = 789 # 42, 123, 456, 789, 1337
 
 unique_id = os.environ.get("SLURM_JOB_ID", str(int(time.time()))) #Using SLURM_JOB_ID as unique id else use time
 

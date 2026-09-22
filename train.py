@@ -18,7 +18,7 @@ wandb_log = True # disabled by default
 wandb_project = 'fmt-llm'
 wandb_run_name = 'gpt2' # 'run' + str(time.time())
 
-torch_seed_default = 1337 #  add: 42, 123, 456, 789 and add that in the name as well 
+torch_seed_default = 1337 #  add: 42, 123, 456, 789, 1337 
 
 # -----------------------------------------------------------------------------
 # default config values designed to train a gpt2 (124M) on OpenWebText
@@ -35,7 +35,7 @@ if init_from == 'resume':
     wandb_run_id = None #Wandb expect run id from config when resume else fail
 
 # data
-dataset = 'babylm_full_bpe_8k' # 'openwebtext' does not exist in data?
+dataset = 'babylm_full_100M_bpe_8k' # 'openwebtext' does not exist in data? # CHANGE HERE
 gradient_accumulation_steps = 5 * 8 # used to simulate larger batch sizes
 batch_size = 12 # if gradient_accumulation_steps > 1, this is the micro-batch size
 block_size = 1024
@@ -399,8 +399,8 @@ while True:
                         out_dir,
                         f'ckpt_{iter_num}.pt'
                     )
-            torch.save(checkpoint, checkpoint_path)
-            print(f"Saved intermediate checkpoint to {checkpoint_path}")
+                torch.save(checkpoint, checkpoint_path)
+                print(f"Saved intermediate checkpoint to {checkpoint_path}")
 
         #Consider running a sampler here maybe?
         if save_sample_to_file:

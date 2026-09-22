@@ -18,7 +18,7 @@ from pathlib import Path
 import pickle
 
 dataset_folder_path = Path(__file__).parents[3] / 'babylm_data'
-train_ds = 'babylm_10M'
+train_ds = 'babylm_100M' # change to 100M!!!!
 dev_ds = 'babylm_dev'
 dataset_name = "full"
 
